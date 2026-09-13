@@ -1,7 +1,14 @@
+# 运行依赖
 Flask==3.0.0
 Werkzeug==3.0.1
 markdown==3.5.1
-beautifulsoup4==4.12.2
-lxml==4.9.3
 Pygments==2.17.2
 
+# 桌面窗口模式（可选）。缺失时程序自动回退到系统浏览器，不会启动失败。
+pywebview==6.2.1
+
+# 打包用（开发时按需安装）：
+#   pip install pyinstaller
+#
+# 已移除 beautifulsoup4 和 lxml：代码中没有任何地方 import 它们，
+# 属于历史遗留的死依赖，其中 lxml 在 Python 3.12+ 上还需要本地编译。
