@@ -9,3 +9,6 @@ env/
 # PyInstaller 打包产物
 build/
 dist/
+
+# Inno Setup 编译产物
+installer/Output/

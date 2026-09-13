@@ -61,7 +61,21 @@ python main.py
 iscc installer\MarkiNote.iss
 ```
 
-产物：`installer\Output\MarkiNote-<版本>-setup.exe`（含开始菜单项、桌面快捷方式、卸载程序）。
+产物：`installer\Output\MarkiNote-<版本>-setup.exe`（约 22 MB，含开始菜单项、
+桌面快捷方式、卸载程序）。版本号在 `installer\MarkiNote.iss` 顶部的 `AppVersion` 处修改。
+
+**中文语言包**：Inno Setup 官方安装包不自带简体中文（属于非官方翻译），
+因此 `installer\ChineseSimplified.isl` 随项目一起提交，克隆仓库后可直接编译。
+
+**静默安装**（批量部署用）：
+
+```
+MarkiNote-1.0.0-setup.exe /VERYSILENT /SUPPRESSMSGBOXES /NORESTART /DIR="目标路径"
+```
+
+注意：如果 MarkiNote 正在运行，Inno Setup 会先尝试关闭它。交互模式下会弹窗提示，
+静默模式下会直接中止安装（这是 Inno Setup 的默认防冲突行为，故意不改成强制结束进程——
+本程序有编辑器，强杀可能丢失未保存的修改）。
 
 卸载时只删除程序本体，**不会删除** `%APPDATA%\MarkiNote` 下的用户笔记。
 
