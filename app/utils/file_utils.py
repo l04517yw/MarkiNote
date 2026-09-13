@@ -6,6 +6,40 @@ def allowed_file(filename, allowed_extensions):
     """检查文件扩展名是否允许"""
     return '.' in filename and filename.rsplit('.', 1)[1].lower() in allowed_extensions
 
+def resolve_library_path(base_path, user_path):
+    """把用户传入的相对路径安全地解析到文档库目录内
+
+    Args:
+        base_path: 文档库根目录
+        user_path: 用户传入的相对路径（可为空字符串，表示根目录）
+
+    Returns:
+        解析后的绝对路径；若路径试图逃逸出文档库目录则返回 None
+
+    原实现用 os.path.abspath(full).startswith(os.path.abspath(base)) 做校验，
+    这个判断有两个缺陷：
+      1. 'lib_backup/x.md' 的绝对路径确实以 'lib' 开头，会被误判为合法，
+         而它其实指向文档库的兄弟目录；
+      2. os.path.join(base, '/etc/passwd') 会直接丢掉 base，返回绝对路径。
+    这里改用"先拒绝绝对路径，再校验是否真正位于 base 之下"的方式。
+    """
+    if not user_path:
+        return os.path.realpath(base_path)
+
+    # 拒绝绝对路径和 Windows 盘符相对路径（如 'C:foo'）
+    if os.path.isabs(user_path) or os.path.splitdrive(user_path)[0]:
+        return None
+
+    base = os.path.realpath(base_path)
+    full = os.path.realpath(os.path.join(base_path, user_path))
+
+    if full == base:
+        return full
+    # 必须位于 base 之下，且分隔符要跟着 base，避免 'lib2' 被误认为在 'lib' 内
+    if not full.startswith(base + os.sep):
+        return None
+    return full
+
 def safe_filename(filename):
     """
     安全的文件名处理，支持中文字符

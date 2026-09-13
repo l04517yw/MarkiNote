@@ -321,7 +321,7 @@ async function previewFile(path) {
         if (data.success) {
             previewTitle.textContent = data.filename;
             currentMarkdownSource = data.raw_markdown || '';
-            previewContent.innerHTML = `<div class="markdown-body">${data.html}</div>`;
+            previewContent.innerHTML = sanitizeHtml(`<div class="markdown-body">${data.html}</div>`);
             
             // 添加代码块复制按钮
             addCodeCopyButtons();
@@ -1339,18 +1339,30 @@ function formatDate(isoString) {
     return date.toLocaleDateString('zh-CN');
 }
 
+// 清洗 HTML 后再插入 DOM。
+// Markdown 允许内嵌原始 HTML，服务端未做过滤，直接 innerHTML 插入意味着
+// 一个含 <script> 的 .md 文件就能在应用内执行任意脚本（存储型 XSS）。
+// 服务端返回的错误信息里也会回显用户传入的路径，同样不可信（反射型）。
+function sanitizeHtml(html) {
+    if (!window.DOMPurify) {
+        console.error('DOMPurify 未加载，拒绝插入未清洗的 HTML');
+        return '';
+    }
+    return DOMPurify.sanitize(html);
+}
+
 function showSuccess(message) {
     alert('✅ ' + message);
 }
 
 function showError(message) {
     alert('❌ ' + message);
-    previewContent.innerHTML = `
+    previewContent.innerHTML = sanitizeHtml(`
         <div class="welcome-message">
             <h3>❌ 错误</h3>
             <p>${message}</p>
         </div>
-    `;
+    `);
 }
 
 // ===== 查看源代码功能 =====
