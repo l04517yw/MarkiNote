@@ -84,7 +84,9 @@ def list_library():
 
     total_time = (time.time() - start_time) * 1000
 
-    print(f"⚡ Library扫描: {scan_time:.0f}ms | 总计: {total_time:.0f}ms | 路径: {current_path or '根目录'} | 项目数: {len(items) if isinstance(items, list) else 0}")
+    # 注意：这里不能出现 emoji。视图函数里的 print 一旦抛异常（Windows 控制台
+    # 默认 GBK 编码装不下 emoji），整个请求就会变成 HTTP 500。
+    print(f"[扫描] 耗时 {scan_time:.0f}ms | 总计 {total_time:.0f}ms | 路径: {current_path or '根目录'} | 项目数: {len(items) if isinstance(items, list) else 0}")
 
     return jsonify({
         'success': True,

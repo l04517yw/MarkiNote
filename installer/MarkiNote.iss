@@ -13,7 +13,7 @@
 ;       避免升级或卸载时丢失笔记。卸载时只做提示，不主动清理。
 
 #define AppName        "MarkiNote"
-#define AppVersion     "1.0.0"
+#define AppVersion     "1.0.1"
 #define AppPublisher   "wink-wink-wink555"
 #define AppURL         "https://github.com/l04517yw/MarkiNote"
 #define AppExeName     "MarkiNote.exe"

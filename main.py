@@ -6,15 +6,44 @@ import sys
 import threading
 import webbrowser
 
-# Windows 控制台默认 GBK 编码，输出 emoji 会直接抛 UnicodeEncodeError 崩溃
-# （stdout 被重定向时尤其明显，例如打包成 exe 双击运行、或输出到日志文件）。
-# 打包成窗口程序时 sys.stdout 可能为 None 或不可重配置的对象，一律忽略。
-if sys.platform == 'win32':
-    for _stream in (sys.stdout, sys.stderr):
-        try:
-            _stream.reconfigure(encoding='utf-8', errors='replace')
-        except Exception:
-            pass
+class _NullWriter:
+    """兜底输出流
+
+    打包成窗口程序后 stdout/stderr 可能不存在、不可写、或是个编码装不下
+    非 ASCII 字符的流。而视图函数里的 print 一旦抛异常，整个请求就会变成
+    HTTP 500 —— 所以输出流必须保证"永远写得进去"。
+    """
+    encoding = 'utf-8'
+    errors = 'replace'
+
+    def write(self, *_args):
+        return 0
+
+    def flush(self):
+        pass
+
+    def reconfigure(self, **_kwargs):
+        pass
+
+    def isatty(self):
+        return False
+
+
+def _make_stream_safe(stream):
+    """返回一个保证可写、且能编码任意字符的输出流"""
+    if stream is None:
+        return _NullWriter()
+    try:
+        stream.reconfigure(encoding='utf-8', errors='replace')
+        stream.flush()  # 探测底层句柄是否真的可用，而不只是对象存在
+        return stream
+    except Exception:
+        return _NullWriter()
+
+
+# 必须在任何 print 之前完成
+sys.stdout = _make_stream_safe(sys.stdout)
+sys.stderr = _make_stream_safe(sys.stderr)
 
 from app import create_app
 
@@ -70,7 +99,7 @@ def open_native_window(url):
         webview.start()
         return True
     except Exception as exc:
-        print(f"⚠️  原生窗口不可用（{exc}），改用系统浏览器")
+        print(f"[警告] 原生窗口不可用（{exc}），改用系统浏览器")
         return False
 
 
@@ -98,12 +127,12 @@ if __name__ == '__main__':
     port = find_free_port(host, requested)
     url = f'http://{host}:{port}'
 
-    print("🚀 MarkiNote 启动中...")
-    print(f"📝 访问 {url} 使用应用")
-    print(f"📁 文档目录: {app.config['LIBRARY_FOLDER']}")
-    print("🐱 By wink-wink-wink555")
+    print("MarkiNote 启动中...")
+    print(f"[访问] {url}")
+    print(f"[文档目录] {app.config['LIBRARY_FOLDER']}")
+    print("By wink-wink-wink555")
     if port != requested:
-        print(f"⚠️  端口 {requested} 被占用，已改用 {port}")
+        print(f"[警告] 端口 {requested} 被占用，已改用 {port}")
 
     if want_window:
         # 原生窗口要占用主线程，服务放到后台线程
