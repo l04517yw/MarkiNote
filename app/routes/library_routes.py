@@ -4,6 +4,7 @@ from datetime import datetime
 import os
 import shutil
 from app.utils import allowed_file, safe_filename, resolve_library_path
+from app.utils.trash import move_to_trash
 
 library_bp = Blueprint('library', __name__)
 
@@ -43,16 +44,22 @@ def get_library_structure(base_path, current_path=''):
                             'modified': datetime.fromtimestamp(stat_info.st_mtime).isoformat()
                         })
                     elif entry.is_file(follow_symlinks=False):
-                        # 只显示允许的文件类型
+                        # 文档和图片等都进列表，但要标出类型。附件如果完全不显示，
+                        # 用户上传完图片看不到任何东西，会以为上传失败了。
                         if allowed_file(entry.name, current_app.config['ALLOWED_EXTENSIONS']):
-                            stat_info = entry.stat(follow_symlinks=False)
-                            items.append({
-                                'name': entry.name,
-                                'type': 'file',
-                                'path': rel_path.replace('\\', '/'),
-                                'size': stat_info.st_size,
-                                'modified': datetime.fromtimestamp(stat_info.st_mtime).isoformat()
-                            })
+                            kind = 'file'
+                        elif allowed_file(entry.name, current_app.config['ASSET_EXTENSIONS']):
+                            kind = 'asset'
+                        else:
+                            continue
+                        stat_info = entry.stat(follow_symlinks=False)
+                        items.append({
+                            'name': entry.name,
+                            'type': kind,
+                            'path': rel_path.replace('\\', '/'),
+                            'size': stat_info.st_size,
+                            'modified': datetime.fromtimestamp(stat_info.st_mtime).isoformat()
+                        })
                 except (OSError, PermissionError) as e:
                     # 跳过无法访问的文件
                     print(f"跳过文件 {entry.name}: {e}")
@@ -61,8 +68,9 @@ def get_library_structure(base_path, current_path=''):
     except Exception as e:
         return {'error': str(e)}
 
-    # 排序：文件夹在前，然后按名称排序
-    items.sort(key=lambda x: (x['type'] != 'folder', x['name'].lower()))
+    # 排序：文件夹 → 文档 → 附件，各自再按名称
+    order = {'folder': 0, 'file': 1, 'asset': 2}
+    items.sort(key=lambda x: (order.get(x['type'], 3), x['name'].lower()))
     return items
 
 @library_bp.route('/api/library/list', methods=['GET'])
@@ -106,38 +114,42 @@ def upload_to_library():
     if file.filename == '':
         return jsonify({'error': '没有选择文件'}), 400
 
-    if file and allowed_file(file.filename, current_app.config['ALLOWED_EXTENSIONS']):
-        filename = safe_filename(file.filename)
+    config = current_app.config
+    is_asset = allowed_file(file.filename, config['ASSET_EXTENSIONS'])
+    if not (is_asset or allowed_file(file.filename, config['ALLOWED_EXTENSIONS'])):
+        return jsonify({'error': '不支持的文件格式'}), 400
 
-        # 构建保存路径
-        base_path = current_app.config['LIBRARY_FOLDER']
-        save_dir = resolve_library_path(base_path, target_path)
+    filename = safe_filename(file.filename)
 
-        # 安全检查：路径必须真正位于文档库目录内
-        if save_dir is None:
-            return jsonify({'error': '非法路径'}), 403
+    # 构建保存路径
+    base_path = config['LIBRARY_FOLDER']
+    save_dir = resolve_library_path(base_path, target_path)
 
-        # 确保目录存在
-        os.makedirs(save_dir, exist_ok=True)
+    # 安全检查：路径必须真正位于文档库目录内
+    if save_dir is None:
+        return jsonify({'error': '非法路径'}), 403
 
-        # 如果文件已存在，添加时间戳
+    # 确保目录存在
+    os.makedirs(save_dir, exist_ok=True)
+
+    # 如果文件已存在，添加时间戳
+    filepath = os.path.join(save_dir, filename)
+    if os.path.exists(filepath):
+        name, ext = os.path.splitext(filename)
+        timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+        filename = f"{name}_{timestamp}{ext}"
         filepath = os.path.join(save_dir, filename)
-        if os.path.exists(filepath):
-            name, ext = os.path.splitext(filename)
-            timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
-            filename = f"{name}_{timestamp}{ext}"
-            filepath = os.path.join(save_dir, filename)
 
-        file.save(filepath)
+    file.save(filepath)
 
-        return jsonify({
-            'success': True,
-            'message': '文件上传成功',
-            'filename': filename,
-            'path': os.path.join(target_path, filename).replace('\\', '/') if target_path else filename
-        })
-
-    return jsonify({'error': '不支持的文件格式'}), 400
+    rel_path = os.path.join(target_path, filename).replace('\\', '/') if target_path else filename
+    return jsonify({
+        'success': True,
+        'message': '已上传为图片资源' if is_asset else '文件上传成功',
+        'filename': filename,
+        'path': rel_path,
+        'kind': 'asset' if is_asset else 'document',
+    })
 
 @library_bp.route('/api/library/create-folder', methods=['POST'])
 def create_folder():
@@ -177,7 +189,11 @@ def create_folder():
 
 @library_bp.route('/api/library/delete', methods=['POST'])
 def delete_item():
-    """删除文件或文件夹"""
+    """删除文件或文件夹
+
+    不物理删除：移进回收站，侧栏可还原。这是本应用里唯一会让用户永久
+    损失数据的路径，所以默认必须是可撤销的。
+    """
     data = request.get_json()
     item_path = data.get('path', '')
 
@@ -191,15 +207,16 @@ def delete_item():
     if full_path is None:
         return jsonify({'error': '非法路径'}), 403
 
+    # '.' 之类会被解析成库根目录本身，不能让它被删掉
+    if full_path == os.path.realpath(base_path):
+        return jsonify({'error': '不能删除文档库根目录'}), 400
+
+    if not os.path.exists(full_path):
+        return jsonify({'error': '文件或文件夹不存在'}), 404
+
     try:
-        if os.path.isfile(full_path):
-            os.remove(full_path)
-            return jsonify({'success': True, 'message': '文件删除成功'})
-        elif os.path.isdir(full_path):
-            shutil.rmtree(full_path)
-            return jsonify({'success': True, 'message': '文件夹删除成功'})
-        else:
-            return jsonify({'error': '文件或文件夹不存在'}), 404
+        move_to_trash(current_app.config['DATA_DIR'], full_path, item_path)
+        return jsonify({'success': True, 'message': '已移入回收站，可从侧栏还原'})
     except Exception as e:
         return jsonify({'error': f'删除失败: {str(e)}'}), 500
 
@@ -304,6 +321,9 @@ def get_all_folders():
         try:
             items = sorted(os.listdir(path))
             for item in items:
+                # 跳过隐藏目录，避免内部目录（如 .git、编辑器临时目录）变成移动目标
+                if item.startswith('.'):
+                    continue
                 item_path = os.path.join(path, item)
                 if os.path.isdir(item_path):
                     rel_path = os.path.join(prefix, item) if prefix else item

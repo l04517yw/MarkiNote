@@ -1469,3 +1469,311 @@ body.editing-source #sourceCloseBtn {
         max-width: none;
     }
 }
+
+/* ===== 检索结果 ===== */
+
+.content-results {
+    margin-top: var(--s-3);
+    padding-top: var(--s-2);
+    border-top: 1px solid var(--c-line);
+}
+
+.content-results-header {
+    padding: var(--s-1) var(--s-2);
+    font-size: var(--t-xs);
+    color: var(--c-text-3);
+}
+
+.content-file + .content-file {
+    margin-top: var(--s-2);
+    padding-top: var(--s-2);
+    border-top: 1px solid var(--c-line-soft);
+}
+
+.content-file-name {
+    padding: 3px var(--s-2);
+    font-size: var(--t-base);
+    font-weight: 500;
+    color: var(--c-accent);
+    border-radius: var(--r-sm);
+    cursor: pointer;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.content-file-name:hover {
+    background: var(--c-hover);
+}
+
+.content-hit {
+    display: flex;
+    gap: var(--s-2);
+    padding: 3px var(--s-2);
+    font-size: var(--t-sm);
+    color: var(--c-text-2);
+    border-radius: var(--r-sm);
+    cursor: pointer;
+}
+
+.content-hit:hover {
+    background: var(--c-hover);
+    color: var(--c-text);
+}
+
+/* 行号用等宽，数字才对得齐 */
+.content-hit-line {
+    flex-shrink: 0;
+    min-width: 2.4em;
+    text-align: right;
+    font-family: "JetBrains Mono", Consolas, monospace;
+    font-size: var(--t-xs);
+    line-height: 1.6;
+    color: var(--c-text-3);
+}
+
+.content-hit-text {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.content-hit-more {
+    padding: 2px var(--s-2);
+    font-size: var(--t-xs);
+    color: var(--c-text-3);
+}
+
+/* ===== 回收站 ===== */
+
+.trash-toolbar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--s-2);
+    padding: var(--s-1) var(--s-2) var(--s-2);
+}
+
+.trash-count {
+    font-size: var(--t-xs);
+    color: var(--c-text-3);
+}
+
+.trash-item {
+    display: flex;
+    align-items: center;
+    gap: var(--s-2);
+    padding: var(--s-2);
+    border-radius: var(--r-md);
+}
+
+.trash-item:hover {
+    background: var(--c-hover);
+}
+
+.trash-actions {
+    display: flex;
+    gap: var(--s-1);
+    flex-shrink: 0;
+}
+
+.trash-actions .btn {
+    height: 26px;
+    padding: 0 var(--s-2);
+    font-size: var(--t-sm);
+}
+
+.danger-text {
+    color: var(--c-danger);
+}
+
+.btn.danger-text:hover:not(:disabled) {
+    background: var(--c-danger-weak);
+    border-color: transparent;
+}
+
+/* ===== 拖拽导入提示层 ===== */
+
+.drop-overlay {
+    position: fixed;
+    inset: 0;
+    z-index: 1500;
+    display: none;
+    align-items: center;
+    justify-content: center;
+    /* 只做视觉提示，事件仍然落到 window 上，避免拖拽过程中反复触发 */
+    pointer-events: none;
+    background: rgba(12, 16, 22, 0.4);
+}
+
+body.dragging-files .drop-overlay {
+    display: flex;
+}
+
+.drop-overlay-inner {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: var(--s-3);
+    padding: var(--s-6) var(--s-7);
+    font-size: var(--t-md);
+    color: var(--c-text);
+    background: var(--c-raised);
+    border: 1px dashed var(--c-accent);
+    border-radius: var(--r-lg);
+    box-shadow: var(--sh-3);
+}
+
+.drop-overlay-inner svg {
+    color: var(--c-accent);
+}
+
+/* ===== 打印样式 =====
+   Ctrl+P 即可得到一份干净的 PDF：只剩正文，且强制按亮色输出。 */
+
+@page {
+    margin: 16mm;
+}
+
+@media print {
+    /* 界面外壳全部不打印 */
+    .library-panel,
+    .preview-header,
+    .toast-stack,
+    .drop-overlay,
+    .modal,
+    .context-menu,
+    .code-copy-btn,
+    .math-copy-btn,
+    .mermaid-actions {
+        display: none !important;
+    }
+
+    html,
+    body {
+        height: auto;
+        overflow: visible;
+        background: #fff;
+        color: #000;
+    }
+
+    .app-container {
+        display: block;
+        height: auto;
+    }
+
+    .preview-panel {
+        background: #fff;
+    }
+
+    .preview-content {
+        overflow: visible;
+        padding: 0;
+    }
+
+    /* 暗色主题下打印也要是黑字白底 */
+    .markdown-body,
+    .markdown-body h1,
+    .markdown-body h2,
+    .markdown-body h3,
+    .markdown-body h4,
+    .markdown-body h5,
+    .markdown-body h6,
+    .markdown-body p,
+    .markdown-body li,
+    .markdown-body td,
+    .markdown-body th,
+    .markdown-body strong,
+    .markdown-body blockquote {
+        color: #000 !important;
+    }
+
+    .markdown-body {
+        max-width: none;
+        font-size: 11pt;
+        line-height: 1.6;
+    }
+
+    .markdown-body a {
+        color: #000 !important;
+        text-decoration: underline;
+    }
+
+    .markdown-body h1,
+    .markdown-body h2 {
+        border-bottom-color: #999;
+    }
+
+    .markdown-body code {
+        background: #f2f2f2 !important;
+        color: #000 !important;
+    }
+
+    .markdown-body pre {
+        background: #f5f5f5 !important;
+        border: 1px solid #ddd;
+    }
+
+    .markdown-body pre code {
+        color: #000 !important;
+    }
+
+    /* 表格默认是 display:block + 横向滚动，打印时要恢复成表格 */
+    .markdown-body table {
+        display: table;
+        width: 100%;
+    }
+
+    .markdown-body th,
+    .markdown-body td {
+        border-color: #999 !important;
+    }
+
+    .markdown-body th {
+        background: #f0f0f0 !important;
+    }
+
+    .markdown-body blockquote {
+        border-left-color: #999;
+    }
+
+    .markdown-body img {
+        max-width: 100% !important;
+        border-color: #ddd;
+    }
+
+    .mermaid-container {
+        border-color: #ccc;
+    }
+
+    /* 分页控制：标题不留在页尾，整块内容不被拦腰截断 */
+    .markdown-body h1,
+    .markdown-body h2,
+    .markdown-body h3,
+    .markdown-body h4,
+    .markdown-body h5,
+    .markdown-body h6 {
+        break-after: avoid;
+        page-break-after: avoid;
+    }
+
+    .markdown-body pre,
+    .markdown-body table,
+    .markdown-body blockquote,
+    .markdown-body img,
+    .math-block,
+    .mermaid-container {
+        break-inside: avoid;
+        page-break-inside: avoid;
+    }
+}
+
+/* 附件（图片等）在列表里压低视觉权重，但仍然可见、可右键管理。
+   如果完全不显示，用户上传完图片看不到东西，会以为上传失败了。 */
+.file-item.asset .file-icon {
+    opacity: 0.7;
+}
+
+.file-item.asset .file-name {
+    color: var(--c-text-2);
+}

@@ -31,9 +31,18 @@ def get_seed_dir():
 
 class Config:
     """Flask应用配置"""
-    MAX_CONTENT_LENGTH = 16 * 1024 * 1024  # 16MB max file size
-    LIBRARY_FOLDER = os.path.join(get_data_dir(), 'lib')
+    MAX_CONTENT_LENGTH = 64 * 1024 * 1024  # 单次上传上限（放宽以容纳图片附件）
+    DATA_DIR = get_data_dir()
+    LIBRARY_FOLDER = os.path.join(DATA_DIR, 'lib')
+
+    # 会出现在文档列表里的类型
     ALLOWED_EXTENSIONS = {'md', 'markdown', 'txt'}
+
+    # 可以作为附件/图片被引用和上传，但不出现在文档列表里的类型
+    ASSET_EXTENSIONS = {
+        'png', 'jpg', 'jpeg', 'gif', 'webp', 'bmp', 'ico', 'svg',
+        'pdf', 'mp4', 'webm', 'mp3', 'wav',
+    }
 
     @staticmethod
     def init_app(app):

@@ -1,10 +1,13 @@
 """MarkiNote - Markdown 文档管理系统启动文件"""
 import json
 import os
+import shutil
 import socket
 import sys
 import threading
+import urllib.parse
 import webbrowser
+from datetime import datetime
 
 class _NullWriter:
     """兜底输出流
@@ -108,6 +111,48 @@ def serve(host, port, debug):
     app.run(debug=debug, host=host, port=port, use_reloader=False, threaded=True)
 
 
+def document_from_argv(argv):
+    """从命令行参数里找出一个要打开的文档路径
+
+    安装包里注册了 .md/.markdown/.txt 的文件关联之后，双击这类文件会把
+    路径作为参数传进来。这里只挑第一个看起来像文档的参数，忽略其他开关。
+    """
+    for arg in argv[1:]:
+        if arg.startswith('-') or not os.path.isfile(arg):
+            continue
+        ext = os.path.splitext(arg)[1].lower().lstrip('.')
+        if ext in ('md', 'markdown', 'txt'):
+            return os.path.abspath(arg)
+    return None
+
+
+def prepare_startup_file(path, library_dir):
+    """把要打开的文档整理成「库内相对路径」
+
+    已经在库里就直接用；在库外的复制进库根目录（同名时加时间戳），
+    这样双击一个刚下载的 .md 也能直接看，而不必先手动上传。
+    """
+    real_library = os.path.realpath(library_dir)
+    real_path = os.path.realpath(path)
+
+    if real_path.startswith(real_library + os.sep):
+        return os.path.relpath(real_path, real_library).replace('\\', '/')
+
+    name = os.path.basename(real_path)
+    target = os.path.join(real_library, name)
+    if os.path.exists(target):
+        stem, ext = os.path.splitext(name)
+        target = os.path.join(real_library, f'{stem}_{datetime.now():%Y%m%d_%H%M%S}{ext}')
+
+    try:
+        os.makedirs(real_library, exist_ok=True)
+        shutil.copy2(real_path, target)
+    except OSError as exc:
+        print(f"[提示] 无法导入 {path}：{exc}")
+        return None
+    return os.path.basename(target)
+
+
 if __name__ == '__main__':
     # 默认只监听本机，调试模式默认关闭
     host = os.environ.get('MARKINOTE_HOST', '127.0.0.1')
@@ -126,6 +171,16 @@ if __name__ == '__main__':
 
     port = find_free_port(host, requested)
     url = f'http://{host}:{port}'
+
+    # 启动参数里带了文档（双击 .md，或命令行指定），让界面直接打开它
+    startup_document = document_from_argv(sys.argv)
+    if startup_document:
+        opened = prepare_startup_file(startup_document, app.config['LIBRARY_FOLDER'])
+        if opened:
+            url += '?open=' + urllib.parse.quote(opened)
+            print(f"[打开] {opened}")
+        else:
+            print(f"[提示] 无法打开 {startup_document}")
 
     print("MarkiNote 启动中...")
     print(f"[访问] {url}")

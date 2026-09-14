@@ -13,11 +13,13 @@
 ;       避免升级或卸载时丢失笔记。卸载时只做提示，不主动清理。
 
 #define AppName        "MarkiNote"
-#define AppVersion     "1.1.0"
+#define AppVersion     "1.2.0"
 #define AppPublisher   "wink-wink-wink555"
 #define AppURL         "https://github.com/l04517yw/MarkiNote"
 #define AppExeName     "MarkiNote.exe"
 #define SourceDir      "..\dist\MarkiNote"
+; 文件关联用的 ProgID。只能改这个字符串，不要改结构与格式。
+#define AppProgID      "MarkiNote.Markdown"
 
 [Setup]
 AppId={{B7C3F1A2-6D4E-4F3B-9A21-8E5C7D0B4A93}
@@ -55,6 +57,7 @@ Name: "english"; MessagesFile: "compiler:Default.isl"
 [Tasks]
 Name: "desktopicon"; Description: "创建桌面快捷方式"; GroupDescription: "附加任务:"; Flags: checkedonce
 Name: "launchapp";   Description: "安装完成后启动 {#AppName}"; GroupDescription: "附加任务:"; Flags: checkedonce
+Name: "assocmd";     Description: "把 .md / .markdown 加入「打开方式」候选"; GroupDescription: "文件关联:"; Flags: checkedonce
 
 [Files]
 ; 整个 PyInstaller onedir 产物
@@ -64,6 +67,18 @@ Source: "{#SourceDir}\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs 
 Name: "{group}\{#AppName}";           Filename: "{app}\{#AppExeName}"
 Name: "{group}\卸载 {#AppName}";      Filename: "{uninstallexe}"
 Name: "{autodesktop}\{#AppName}";     Filename: "{app}\{#AppExeName}"; Tasks: desktopicon
+
+[Registry]
+; 只把本程序加进「打开方式」候选，不去抢默认关联：
+;   - Windows 10+ 会阻止程序私自改默认关联，用户必须在「设置」里自己确认
+;   - 抢默认也不礼貌，候选列表够用（右键文件 → 打开方式 → MarkiNote）
+; 程序侧已经支持接收文件路径参数（main.py 的 document_from_argv），
+; 所以这里的关联是真的能用，不是「双击能启动但不打开那个文件」。
+Root: HKA; Subkey: "Software\Classes\{#AppProgID}"; ValueType: string; ValueName: ""; ValueData: "Markdown 文档"; Flags: uninsdeletekey
+Root: HKA; Subkey: "Software\Classes\{#AppProgID}\DefaultIcon"; ValueType: string; ValueName: ""; ValueData: "{app}\{#AppExeName},0"
+Root: HKA; Subkey: "Software\Classes\{#AppProgID}\shell\open\command"; ValueType: string; ValueName: ""; ValueData: """{app}\{#AppExeName}"" ""%1"""
+Root: HKA; Subkey: "Software\Classes\.md\OpenWithProgids"; ValueType: string; ValueName: "{#AppProgID}"; ValueData: ""; Flags: uninsdeletevalue; Tasks: assocmd
+Root: HKA; Subkey: "Software\Classes\.markdown\OpenWithProgids"; ValueType: string; ValueName: "{#AppProgID}"; ValueData: ""; Flags: uninsdeletevalue; Tasks: assocmd
 
 [Run]
 Filename: "{app}\{#AppExeName}"; Description: "启动 {#AppName}"; Flags: nowait postinstall skipifsilent; Tasks: launchapp

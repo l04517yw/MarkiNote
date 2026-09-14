@@ -78,6 +78,8 @@ document.addEventListener('DOMContentLoaded', () => {
     setupEventListeners();
     initializeMermaid();
     loadSidebarState();
+    setupDragAndDrop();
+    openFromQuery();
 });
 
 // 设置事件监听
@@ -168,7 +170,9 @@ function selectUploadType(type) {
         // 上传文件
         fileInput.removeAttribute('webkitdirectory');
         fileInput.removeAttribute('directory');
-        fileInput.setAttribute('accept', '.md,.markdown,.txt');
+        // 图片等附件也允许选，它们会作为资源存进库里、不出现在文档列表
+        fileInput.setAttribute('accept',
+            '.md,.markdown,.txt,.png,.jpg,.jpeg,.gif,.webp,.bmp,.svg,.pdf');
     } else if (type === 'folder') {
         // 上传文件夹
         fileInput.setAttribute('webkitdirectory', '');
@@ -182,6 +186,8 @@ function selectUploadType(type) {
 // 加载Library（优化版，添加性能监控）
 async function loadLibrary(path = '') {
     currentPath = path;
+    // 列表区重新渲染成文件列表，视图状态跟着回到「文档库」
+    currentView = 'library';
     fileList.innerHTML = '<div class="loading">加载中...</div>';
     
     const startTime = performance.now();
@@ -226,7 +232,9 @@ function displayFiles(items) {
     items.forEach(item => {
         const icon = item.type === 'folder' 
             ? '<svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M.54 3.87L.5 3a2 2 0 0 1 2-2h3.672a2 2 0 0 1 1.414.586l.828.828A2 2 0 0 0 9.828 3h3.982a2 2 0 0 1 1.992 2.181l-.637 7A2 2 0 0 1 13.174 14H2.826a2 2 0 0 1-1.991-1.819l-.637-7a1.99 1.99 0 0 1 .342-1.31z"/></svg>'
-            : '<svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M14 4.5V14a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V2a2 2 0 0 1 2-2h5.5L14 4.5zm-3 0A1.5 1.5 0 0 1 9.5 3V1H4a1 1 0 0 0-1 1v12a1 1 0 0 0 1 1h8a1 1 0 0 0 1-1V4.5h-2z"/></svg>';
+            : item.type === 'asset'
+                ? '<svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M6.002 5.5a1.5 1.5 0 1 1-3 0 1.5 1.5 0 0 1 3 0z"/><path d="M2.002 1a2 2 0 0 0-2 2v10a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V3a2 2 0 0 0-2-2h-12zm12 1a1 1 0 0 1 1 1v6.5l-3.777-1.947a.5.5 0 0 0-.577.093l-3.71 3.71-2.66-1.772a.5.5 0 0 0-.63.062L1.002 12V3a1 1 0 0 1 1-1h12z"/></svg>'
+                : '<svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M14 4.5V14a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V2a2 2 0 0 1 2-2h5.5L14 4.5zm-3 0A1.5 1.5 0 0 1 9.5 3V1H4a1 1 0 0 0-1 1v12a1 1 0 0 0 1 1h8a1 1 0 0 0 1-1V4.5h-2z"/></svg>';
         
         const size = item.size ? formatFileSize(item.size) : '';
         const modified = item.modified ? formatDate(item.modified) : '';
@@ -279,6 +287,9 @@ function updateBreadcrumb(path) {
 function handleFileClick(path, type) {
     if (type === 'folder') {
         loadLibrary(path);
+    } else if (type === 'asset') {
+        // 图片/附件没法在阅读区渲染，交给浏览器新开一个标签查看
+        window.open('/api/library/asset?path=' + encodeURIComponent(path), '_blank', 'noopener');
     } else {
         selectFile(path);
         previewFile(path);
@@ -324,7 +335,11 @@ async function previewFile(path) {
             previewTitle.textContent = data.filename;
             currentMarkdownSource = data.raw_markdown || '';
             previewContent.innerHTML = sanitizeHtml(`<div class="markdown-body">${data.html}</div>`);
-            
+
+            // 文档里的 ![](图.png) 会被浏览器按页面地址解析，落到 /图.png 上（404）。
+            // 这里改写成资源接口的地址，图片才能显示出来。
+            rewriteAssetUrls(previewContent, path);
+
             // 添加代码块复制按钮
             addCodeCopyButtons();
             
@@ -1860,5 +1875,411 @@ document.addEventListener('keydown', (event) => {
         } else {
             searchInput.focus();
         }
+    }
+});
+
+// ===== 文档内的图片：把相对地址改写成资源接口 =====
+//
+// Markdown 渲染出的 <img src="图.png"> 会以**页面地址**为基准解析，落到
+// /图.png 上——那是 404。要按文档所在目录来解析，然后走 /api/library/asset。
+
+function normalizeRelPath(path) {
+    const out = [];
+    String(path).split('/').forEach((segment) => {
+        if (!segment || segment === '.') {
+            return;
+        }
+        if (segment === '..') {
+            out.pop();
+            return;
+        }
+        out.push(segment);
+    });
+    return out.join('/');
+}
+
+function rewriteAssetUrls(container, docPath) {
+    const baseDir = docPath && docPath.includes('/')
+        ? docPath.slice(0, docPath.lastIndexOf('/') + 1)
+        : '';
+
+    container.querySelectorAll('img').forEach((img) => {
+        const src = img.getAttribute('src') || '';
+        // 外链 / data URI / 绝对路径都不需要改写
+        if (!src || /^(https?:|data:|blob:|\/)/i.test(src)) {
+            return;
+        }
+        let rel = src;
+        try {
+            rel = decodeURIComponent(src);
+        } catch (err) {
+            // 不是合法的百分号编码，按原样处理
+        }
+        const joined = normalizeRelPath(baseDir + rel);
+        img.setAttribute('src', `/api/library/asset?path=${encodeURIComponent(joined)}`);
+    });
+}
+
+// ===== 拖拽导入 =====
+//
+// 直接复用 /api/library/upload，不新增接口。只处理文件；拖文件夹进来
+// 需要 webkitGetAsEntry 递归，那是另一件事，这里不做。
+
+let dragDepth = 0;
+
+function dragHasFiles(event) {
+    const types = event.dataTransfer && event.dataTransfer.types;
+    return types ? Array.prototype.indexOf.call(types, 'Files') >= 0 : false;
+}
+
+function setupDragAndDrop() {
+    window.addEventListener('dragenter', (event) => {
+        if (!dragHasFiles(event)) {
+            return;
+        }
+        event.preventDefault();
+        dragDepth += 1;
+        document.body.classList.add('dragging-files');
+    });
+
+    window.addEventListener('dragover', (event) => {
+        if (!dragHasFiles(event)) {
+            return;
+        }
+        event.preventDefault();
+        event.dataTransfer.dropEffect = 'copy';
+    });
+
+    window.addEventListener('dragleave', (event) => {
+        if (!dragHasFiles(event)) {
+            return;
+        }
+        dragDepth = Math.max(0, dragDepth - 1);
+        if (dragDepth === 0) {
+            document.body.classList.remove('dragging-files');
+        }
+    });
+
+    window.addEventListener('drop', async (event) => {
+        if (!dragHasFiles(event)) {
+            return;
+        }
+        event.preventDefault();
+        dragDepth = 0;
+        document.body.classList.remove('dragging-files');
+
+        const files = Array.from(event.dataTransfer.files || []);
+        if (files.length) {
+            await importDroppedFiles(files);
+        }
+    });
+}
+
+async function importDroppedFiles(files) {
+    const targetDir = currentPath;
+    let documents = 0;
+    const assets = [];
+    const failed = [];
+
+    for (const file of files) {
+        const form = new FormData();
+        form.append('file', file);
+        form.append('path', targetDir);
+        try {
+            const response = await fetch('/api/library/upload', { method: 'POST', body: form });
+            const data = await response.json();
+            if (response.ok && data.success) {
+                if (data.kind === 'asset') {
+                    assets.push(data.filename);
+                } else {
+                    documents += 1;
+                }
+            } else {
+                failed.push(`${file.name}：${data.error || response.status}`);
+            }
+        } catch (err) {
+            failed.push(`${file.name}：${err.message}`);
+        }
+    }
+
+    if (documents) {
+        showSuccess(`已导入 ${documents} 个文档`);
+    }
+    if (assets.length) {
+        // 图片资源不进文档列表，要说清楚它去哪了
+        showSuccess(`已导入 ${assets.length} 张图片，可在文档中用相对路径引用`);
+    }
+    if (failed.length) {
+        showError(`${failed.length} 个文件未能导入 —— ${failed.slice(0, 3).join('；')}`);
+    }
+
+    if (currentView === 'trash') {
+        showLibrary();
+    } else {
+        loadLibrary(currentPath);
+    }
+}
+
+// ===== 启动参数指定的文档（双击 .md 打开）=====
+
+async function openFromQuery() {
+    const target = new URLSearchParams(window.location.search).get('open');
+    if (!target) {
+        return;
+    }
+    const dir = target.includes('/') ? target.slice(0, target.lastIndexOf('/')) : '';
+    // 必须等列表渲染完再选中，否则 selectFile 在 DOM 里找不到对应的行
+    await loadLibrary(dir);
+    selectFile(target);
+    await previewFile(target);
+}
+
+// ===== 全文检索 =====
+//
+// 原有的 handleSearch 只按**文件名**过滤当前目录已渲染的列表，这里保持不动
+// （它响应快、体验好），另外挂一个监听去服务端搜正文，结果放在列表下方。
+// 两者互补：文件名匹配即时出现，正文匹配稍后补上。
+
+let contentSearchTimer = null;
+
+function clearContentResults() {
+    const old = document.getElementById('contentResults');
+    if (old) {
+        old.remove();
+    }
+}
+
+function element(tag, className, text) {
+    const node = document.createElement(tag);
+    if (className) {
+        node.className = className;
+    }
+    if (text !== undefined) {
+        // 一律走 textContent：文件名来自服务端，可能包含用户起的任意字符
+        node.textContent = text;
+    }
+    return node;
+}
+
+async function runContentSearch(query) {
+    clearContentResults();
+
+    let data;
+    try {
+        const response = await fetch('/api/search?q=' + encodeURIComponent(query));
+        data = await response.json();
+    } catch (err) {
+        return;
+    }
+
+    // 结果回来时输入框可能已经变了，丢弃过期结果
+    if (searchInput.value.trim() !== query) {
+        return;
+    }
+    if (!data || !data.success || !data.files.length) {
+        return;
+    }
+
+    // 有正文命中，就不该再显示"无搜索结果"
+    const noResult = fileList.querySelector('.no-search-result');
+    if (noResult) {
+        noResult.remove();
+    }
+
+    const box = element('div', 'content-results');
+    box.id = 'contentResults';
+
+    box.appendChild(element('div', 'content-results-header',
+        '正文匹配 ' + data.total + ' 处，来自 ' + data.files.length + ' 个文档'));
+
+    data.files.forEach((file) => {
+        const group = element('div', 'content-file');
+
+        const title = element('div', 'content-file-name', file.name);
+        title.title = file.path;
+        title.addEventListener('click', () => openSearchHit(file.path));
+        group.appendChild(title);
+
+        file.hits.slice(0, 5).forEach((hit) => {
+            const row = element('div', 'content-hit');
+            row.appendChild(element('span', 'content-hit-line', String(hit.line)));
+            row.appendChild(element('span', 'content-hit-text', hit.text));
+            row.title = '第 ' + hit.line + ' 行';
+            row.addEventListener('click', () => openSearchHit(file.path));
+            group.appendChild(row);
+        });
+
+        if (file.hits.length > 5) {
+            group.appendChild(element('div', 'content-hit-more',
+                '另有 ' + (file.hits.length - 5) + ' 处…'));
+        }
+
+        box.appendChild(group);
+    });
+
+    if (data.truncated) {
+        box.appendChild(element('div', 'content-results-header', '结果过多，仅显示前一部分'));
+    }
+
+    fileList.appendChild(box);
+}
+
+async function openSearchHit(path) {
+    const dir = path.includes('/') ? path.slice(0, path.lastIndexOf('/')) : '';
+    if (dir !== currentPath) {
+        await loadLibrary(dir);
+    }
+    await previewFile(path);
+}
+
+searchInput.addEventListener('input', (event) => {
+    const query = event.target.value.trim();
+    if (contentSearchTimer) {
+        clearTimeout(contentSearchTimer);
+    }
+    clearContentResults();
+    if (!query) {
+        return;
+    }
+    contentSearchTimer = setTimeout(() => runContentSearch(query), 250);
+});
+
+// ===== 回收站 =====
+
+let currentView = 'library';
+
+function formatSize(bytes) {
+    if (!bytes && bytes !== 0) {
+        return '';
+    }
+    if (bytes < 1024) {
+        return bytes + ' B';
+    }
+    if (bytes < 1024 * 1024) {
+        return (bytes / 1024).toFixed(1) + ' KB';
+    }
+    return (bytes / 1024 / 1024).toFixed(1) + ' MB';
+}
+
+async function showTrash() {
+    currentView = 'trash';
+    breadcrumb.innerHTML = '<span class="breadcrumb-item active">回收站</span>';
+    fileList.innerHTML = '<div class="loading">加载中…</div>';
+
+    let data;
+    try {
+        const response = await fetch('/api/trash/list');
+        data = await response.json();
+    } catch (err) {
+        fileList.innerHTML = '<div class="empty-state">回收站读取失败</div>';
+        return;
+    }
+
+    renderTrash(data.items || []);
+}
+
+function renderTrash(items) {
+    fileList.innerHTML = '';
+
+    if (!items.length) {
+        fileList.appendChild(element('div', 'empty-state',
+            '回收站是空的。删除的文档会先放到这里，可以还原。'));
+        return;
+    }
+
+    const toolbar = element('div', 'trash-toolbar');
+    toolbar.appendChild(element('span', 'trash-count', items.length + ' 项'));
+
+    const emptyBtn = element('button', 'btn btn-secondary danger-text', '清空回收站');
+    emptyBtn.addEventListener('click', emptyTrash);
+    toolbar.appendChild(emptyBtn);
+    fileList.appendChild(toolbar);
+
+    items.forEach((item) => {
+        const row = element('div', 'trash-item');
+
+        const info = element('div', 'file-info');
+        info.appendChild(element('div', 'file-name', item.name));
+
+        const meta = [
+            '原位置 ' + (item.original_path !== item.name ? item.original_path : '根目录'),
+            formatSize(item.size),
+            item.deleted_at ? item.deleted_at.replace('T', ' ') : '',
+        ].filter(Boolean).join(' · ');
+        info.appendChild(element('div', 'file-meta', meta));
+        row.appendChild(info);
+
+        const actions = element('div', 'trash-actions');
+
+        const restoreBtn = element('button', 'btn btn-secondary', '还原');
+        restoreBtn.title = '放回原来的位置';
+        restoreBtn.addEventListener('click', () => restoreTrashItem(item.id));
+        actions.appendChild(restoreBtn);
+
+        const purgeBtn = element('button', 'btn btn-secondary danger-text', '彻底删除');
+        purgeBtn.title = '永久删除，不可恢复';
+        purgeBtn.addEventListener('click', () => purgeTrashItem(item.id));
+        actions.appendChild(purgeBtn);
+
+        row.appendChild(actions);
+        fileList.appendChild(row);
+    });
+}
+
+async function restoreTrashItem(entryId) {
+    if (await postTrash('/api/trash/restore', { id: entryId })) {
+        await showTrash();
+    }
+}
+
+async function purgeTrashItem(entryId) {
+    if (!window.confirm('彻底删除后无法恢复，确定吗？')) {
+        return;
+    }
+    if (await postTrash('/api/trash/purge', { id: entryId })) {
+        await showTrash();
+    }
+}
+
+async function emptyTrash() {
+    if (!window.confirm('将永久删除回收站里的全部内容，无法恢复。确定吗？')) {
+        return;
+    }
+    if (await postTrash('/api/trash/empty', {})) {
+        await showTrash();
+    }
+}
+
+async function postTrash(path, payload) {
+    try {
+        const response = await fetch(path, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload),
+        });
+        const data = await response.json();
+        if (response.ok && data.success) {
+            showSuccess(data.message || '完成');
+            return true;
+        }
+        showError(data.error || '操作失败');
+        return false;
+    } catch (err) {
+        showError('操作失败：' + err.message);
+        return false;
+    }
+}
+
+function showLibrary() {
+    currentView = 'library';
+    loadLibrary(currentPath);
+}
+
+// 回收站入口（放在侧栏头部）
+document.getElementById('trashBtn').addEventListener('click', () => {
+    if (currentView === 'trash') {
+        showLibrary();
+    } else {
+        showTrash();
     }
 });
