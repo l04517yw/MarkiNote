@@ -216,7 +216,7 @@ async function loadLibrary(path = '') {
 // 显示文件列表（优化版，使用DocumentFragment减少重绘）
 function displayFiles(items) {
     if (items.length === 0) {
-        fileList.innerHTML = '<div class="empty-state">📁 文件夹为空<br><small style="color: var(--text-secondary); margin-top: 8px;">点击"上传"按钮添加文件</small></div>';
+        fileList.innerHTML = '<div class="empty-state">这个文件夹是空的<br><small style="display:block; margin-top: 6px;">用下方的「新建」或「上传」添加内容</small></div>';
         return;
     }
     
@@ -225,8 +225,8 @@ function displayFiles(items) {
     
     items.forEach(item => {
         const icon = item.type === 'folder' 
-            ? '<svg width="24" height="24" viewBox="0 0 16 16" fill="#3b82f6"><path d="M.54 3.87L.5 3a2 2 0 0 1 2-2h3.672a2 2 0 0 1 1.414.586l.828.828A2 2 0 0 0 9.828 3h3.982a2 2 0 0 1 1.992 2.181l-.637 7A2 2 0 0 1 13.174 14H2.826a2 2 0 0 1-1.991-1.819l-.637-7a1.99 1.99 0 0 1 .342-1.31z"/></svg>'
-            : '<svg width="24" height="24" viewBox="0 0 16 16" fill="#64748b"><path d="M14 4.5V14a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V2a2 2 0 0 1 2-2h5.5L14 4.5zm-3 0A1.5 1.5 0 0 1 9.5 3V1H4a1 1 0 0 0-1 1v12a1 1 0 0 0 1 1h8a1 1 0 0 0 1-1V4.5h-2z"/></svg>';
+            ? '<svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M.54 3.87L.5 3a2 2 0 0 1 2-2h3.672a2 2 0 0 1 1.414.586l.828.828A2 2 0 0 0 9.828 3h3.982a2 2 0 0 1 1.992 2.181l-.637 7A2 2 0 0 1 13.174 14H2.826a2 2 0 0 1-1.991-1.819l-.637-7a1.99 1.99 0 0 1 .342-1.31z"/></svg>'
+            : '<svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M14 4.5V14a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V2a2 2 0 0 1 2-2h5.5L14 4.5zm-3 0A1.5 1.5 0 0 1 9.5 3V1H4a1 1 0 0 0-1 1v12a1 1 0 0 0 1 1h8a1 1 0 0 0 1-1V4.5h-2z"/></svg>';
         
         const size = item.size ? formatFileSize(item.size) : '';
         const modified = item.modified ? formatDate(item.modified) : '';
@@ -242,10 +242,10 @@ function displayFiles(items) {
             <div class="file-icon">${icon}</div>
             <div class="file-info">
                 <div class="file-name">${item.name}</div>
-                <div class="file-meta">${size} ${size && modified ? '•' : ''} ${modified}</div>
+                <div class="file-meta">${[size, modified].filter(Boolean).join(' · ')}</div>
             </div>
-            <button class="file-menu-btn" onclick="showContextMenuFromButton(event, '${item.path}', '${item.type}')" title="更多操作">
-                <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
+            <button class="file-menu-btn" onclick="showContextMenuFromButton(event, '${item.path}', '${item.type}')" title="更多操作" aria-label="更多操作">
+                <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true">
                     <path d="M3 9.5a1.5 1.5 0 1 1 0-3 1.5 1.5 0 0 1 0 3zm5 0a1.5 1.5 0 1 1 0-3 1.5 1.5 0 0 1 0 3zm5 0a1.5 1.5 0 1 1 0-3 1.5 1.5 0 0 1 0 3z"/>
                 </svg>
             </button>
@@ -305,7 +305,9 @@ function selectFile(path) {
 async function previewFile(path) {
     previewContent.innerHTML = '<div class="loading">加载中...</div>';
     previewTitle.textContent = '加载中...';
-    currentFilePath.textContent = path;
+    // 只显示所在文件夹：文件在根目录时，路径与标题完全相同，重复且无信息量
+    const parentDir = path.includes('/') ? path.slice(0, path.lastIndexOf('/')) : '';
+    currentFilePath.textContent = parentDir ? `${parentDir}/` : '';
     
     try {
         const response = await fetch('/api/preview', {
@@ -1351,18 +1353,38 @@ function sanitizeHtml(html) {
     return DOMPurify.sanitize(html);
 }
 
+// 提示条：替代原生 alert。
+// 原生 alert 会阻塞整个界面；旧版 showError 还会把正在阅读的正文替换成错误块，
+// 等于出错时连阅读位置一起丢掉。
+function showToast(message, type) {
+    const stack = document.getElementById('toastStack');
+    if (!stack) {
+        return;
+    }
+
+    const iconPath = type === 'error'
+        ? '<path d="M8 0a8 8 0 1 0 0 16A8 8 0 0 0 8 0zm.5 4.5v5a.5.5 0 0 1-1 0v-5a.5.5 0 0 1 1 0zM8 12.25a.75.75 0 1 1 0-1.5.75.75 0 0 1 0 1.5z"/>'
+        : '<path d="M8 0a8 8 0 1 0 0 16A8 8 0 0 0 8 0zm3.854 5.854-4.5 4.5a.5.5 0 0 1-.708 0l-2-2a.5.5 0 0 1 .708-.708L7 9.293l4.146-4.147a.5.5 0 0 1 .708.708z"/>';
+
+    const el = document.createElement('div');
+    el.className = `toast toast-${type}`;
+    el.innerHTML = `<svg width="15" height="15" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true">${iconPath}</svg><span></span>`;
+    // 用 textContent 写入：错误信息里会带上用户输入的文件名，不能当 HTML 解析
+    el.querySelector('span').textContent = message;
+
+    stack.appendChild(el);
+    setTimeout(() => {
+        el.classList.add('leaving');
+        setTimeout(() => el.remove(), 200);
+    }, type === 'error' ? 6000 : 2600);
+}
+
 function showSuccess(message) {
-    alert('✅ ' + message);
+    showToast(message, 'success');
 }
 
 function showError(message) {
-    alert('❌ ' + message);
-    previewContent.innerHTML = sanitizeHtml(`
-        <div class="welcome-message">
-            <h3>❌ 错误</h3>
-            <p>${message}</p>
-        </div>
-    `);
+    showToast(message, 'error');
 }
 
 // ===== 查看源代码功能 =====
@@ -1728,7 +1750,7 @@ async function renderMermaidDiagrams() {
 // 导出Mermaid图表为图片
 async function exportMermaidAsImage(container, index) {
     if (!window.html2canvas) {
-        alert('图片导出功能需要html2canvas库');
+        showError('图片导出需要 html2canvas，该库未加载');
         return;
     }
 
@@ -1736,7 +1758,7 @@ async function exportMermaidAsImage(container, index) {
         // 找到SVG元素
         const svg = container.querySelector('svg');
         if (!svg) {
-            alert('未找到图表SVG元素');
+            showError('未找到图表的 SVG 元素');
             return;
         }
         
@@ -1771,6 +1793,72 @@ async function exportMermaidAsImage(container, index) {
         
     } catch (err) {
         console.error('导出图片失败:', err);
-        alert('导出失败: ' + err.message);
+        showError('导出失败：' + err.message);
     }
 }
+
+// ===== 全局键盘快捷键 =====
+// 空状态里给出的提示必须是真实可用的，所以这两个快捷键在这里真正实现。
+
+function isTypingTarget(el) {
+    if (!el) {
+        return false;
+    }
+    const tag = el.tagName;
+    return tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || el.isContentEditable;
+}
+
+// 按层级关闭最上面的浮层：弹窗 → 右键菜单 → 搜索框
+function closeTopmostLayer() {
+    const openModal = document.querySelector('.modal.show');
+    if (openModal) {
+        const closers = {
+            uploadModal: closeUploadModal,
+            sourceModal: closeSourceModal,
+            newSelectModal: closeNewSelectModal,
+            newFileModal: closeNewFileModal,
+            newFolderModal: closeNewFolderModal,
+            moveModal: closeMoveModal,
+            renameModal: closeRenameModal,
+        };
+        const close = closers[openModal.id];
+        if (close) {
+            close();
+        }
+        return true;
+    }
+
+    if (contextMenu.classList.contains('show') || previewContextMenu.classList.contains('show')) {
+        contextMenu.classList.remove('show');
+        previewContextMenu.classList.remove('show');
+        return true;
+    }
+
+    if (searchBar.style.display !== 'none') {
+        closeSearch();
+        return true;
+    }
+
+    return false;
+}
+
+document.addEventListener('keydown', (event) => {
+    if (event.key === 'Escape') {
+        // 编辑源码时交给编辑态自己的取消逻辑，避免按 Esc 直接丢掉改动
+        if (document.body.classList.contains('editing-source')) {
+            return;
+        }
+        closeTopmostLayer();
+        return;
+    }
+
+    // "/" 聚焦搜索框；正在输入框里打字时不拦截
+    if (event.key === '/' && !isTypingTarget(event.target)) {
+        event.preventDefault();
+        if (searchBar.style.display === 'none') {
+            toggleSearch();
+        } else {
+            searchInput.focus();
+        }
+    }
+});
