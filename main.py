@@ -53,6 +53,18 @@ from app import create_app
 # 创建Flask应用实例
 app = create_app()
 
+# 把工作目录切到用户数据目录。
+#
+# 应用会调 webbrowser.open() 打开界面，而子进程会继承父进程的当前工作目录，
+# Windows 的 DLL 搜索顺序又包含工作目录。打包后程序目录里带着 VCRUNTIME140.dll
+# 这类常见运行库，浏览器一旦把我们这份加载走就会一直钉住它——下次升级安装时
+# 替换该文件会失败（实测 Edge 曾因此让整个升级回滚）。
+# 数据目录里只有用户文档，不存在这个风险，且所有资源路径都已是绝对路径。
+try:
+    os.chdir(app.config['DATA_DIR'])
+except OSError:
+    pass
+
 APP_NAME = 'MarkiNote'
 DEFAULT_PORT = 5000
 
